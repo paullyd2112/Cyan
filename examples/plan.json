@@ -1,0 +1,89 @@
+{
+  "source": "hubspot",
+  "destination": "salesforce",
+  "object": "contacts",
+  "mappings": [
+    {
+      "from": "firstname",
+      "to": "FirstName",
+      "confidence": 1,
+      "type": "string"
+    },
+    {
+      "from": "lastname",
+      "to": "LastName",
+      "confidence": 1,
+      "type": "string"
+    },
+    {
+      "from": "email",
+      "to": "Email",
+      "confidence": 1,
+      "type": "email"
+    },
+    {
+      "from": "phone",
+      "to": "Phone",
+      "confidence": 1,
+      "type": "phone"
+    },
+    {
+      "from": "mobilephone",
+      "to": "MobilePhone",
+      "confidence": 1,
+      "type": "phone"
+    },
+    {
+      "from": "city",
+      "to": "MailingCity",
+      "confidence": 1,
+      "type": "string"
+    },
+    {
+      "from": "state",
+      "to": "MailingState",
+      "confidence": 1,
+      "type": "string"
+    },
+    {
+      "from": "country",
+      "to": "MailingCountry",
+      "confidence": 1,
+      "type": "string"
+    },
+    {
+      "from": "jobtitle",
+      "to": "Title",
+      "confidence": 0.9,
+      "type": "string"
+    },
+    {
+      "from": "company",
+      "to": "Account.Name",
+      "confidence": 0.9,
+      "type": "string"
+    },
+    {
+      "from": "createdate",
+      "to": "CreatedDate",
+      "confidence": 0.9,
+      "type": "date"
+    },
+    {
+      "from": "zip",
+      "to": "MailingPostalCode",
+      "confidence": 0.9,
+      "type": "string"
+    }
+  ],
+  "required": [
+    "LastName"
+  ],
+  "options": {},
+  "unmappedSource": [
+    "lifecyclestage",
+    "hs_lead_status",
+    "website"
+  ],
+  "dedupeBy": "Email"
+}
