@@ -1,0 +1,9 @@
+{
+  "name": "cyan",
+  "version": "0.1.0",
+  "description": "CRM migration engine: auto field mapping, transforms, validation, dedupe, dry-run reports.",
+  "type": "module",
+  "bin": { "cyan": "bin/cyan.js" },
+  "scripts": { "test": "node --test \"test/*.test.js\"" },
+  "license": "MIT"
+}

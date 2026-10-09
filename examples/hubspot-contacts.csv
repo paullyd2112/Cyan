@@ -1,0 +1,7 @@
+firstname,lastname,email,phone,mobilephone,jobtitle,company,lifecyclestage,createdate,website,city,state,country,zip
+Ada,Lovelace,ADA@Analytical.io,(415) 555-0134,,CTO,Analytical Engines,customer,03/15/2024,https://www.analytical.io/,San Francisco,CA,US,94107
+Grace,Hopper,grace@navy.mil,+1 212 555 0199 x42,415.555.0101,Rear Admiral,US Navy,lead,2024-02-01,navy.mil,New York,NY,US,10001
+Ada,Lovelace,ada@analytical.io,,415-555-0134,,,,,,,,,
+Alan,Turing,not-an-email,12345,,Researcher,Bletchley,subscriber,31/02/2024,,,,,
+,,,,,,,,,,,,,
+Linus,Torvalds,linus@kernel.org,5035550142,,Maintainer,Linux Foundation,opportunity,1700000000,kernel.org,Portland,OR,US,97201
