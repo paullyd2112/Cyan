@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cyan Garden</title>
+<style>
+  :root { --bg:#02090c; --fg:#9ff4f0; --dim:#2a6a70; }
+  * { box-sizing: border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:13px ui-monospace,Menlo,monospace; overflow:hidden; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; image-rendering:pixelated; cursor:crosshair; touch-action:none; }
+  #ui { position:fixed; left:16px; right:16px; bottom:16px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; pointer-events:none; }
+  button { pointer-events:auto; background:rgba(2,9,12,.7); color:var(--fg); border:1px solid var(--dim); padding:6px 12px; border-radius:999px; font:inherit; cursor:pointer; backdrop-filter:blur(6px); }
+  button:hover, button.on { background:var(--fg); color:var(--bg); }
+  #name { margin-right:auto; pointer-events:none; background:rgba(2,9,12,.7); padding:6px 12px; border-radius:999px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui"><span id="name"></span></div>
+<script>
+// Gray-Scott reaction-diffusion. U is the "food", V the "organism".
+//   dU/dt = Du∇²U − UV² + F(1−U)     dV/dt = Dv∇²V + UV² − (F+k)V
+const N = 220;                       // simulation grid
+const PRESETS = {
+  coral:   { F: 0.0545, k: 0.0620 },
+  mitosis: { F: 0.0367, k: 0.0649 },
+  spots:   { F: 0.0300, k: 0.0620 },
+  worms:   { F: 0.0780, k: 0.0610 },
+  waves:   { F: 0.0140, k: 0.0450 },
+};
+const Du = 1.0, Dv = 0.5, STEPS = 10;
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+canvas.width = canvas.height = N;
+const img = ctx.createImageData(N, N);
+
+let U = new Float32Array(N * N), V = new Float32Array(N * N);
+let U2 = new Float32Array(N * N), V2 = new Float32Array(N * N);
+let params = PRESETS.coral;
+
+function reset(seeds = 6) {
+  U.fill(1); V.fill(0);
+  for (let s = 0; s < seeds; s++) blob(Math.random() * N, Math.random() * N, 6);
+}
+function blob(cx, cy, r) {
+  for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) {
+    if (x * x + y * y > r * r) continue;
+    const i = ((Math.round(cy + y) + N) % N) * N + ((Math.round(cx + x) + N) % N);
+    U[i] = 0.5; V[i] = 0.25 + Math.random() * 0.05;
+  }
+}
+
+function step() {
+  const { F, k } = params;
+  for (let y = 0; y < N; y++) {
+    const yu = ((y - 1 + N) % N) * N, yd = ((y + 1) % N) * N, yy = y * N;
+    for (let x = 0; x < N; x++) {
+      const xl = (x - 1 + N) % N, xr = (x + 1) % N, i = yy + x;
+      const u = U[i], v = V[i];
+      // 9-point Laplacian (weights: centre −1, edges .2, corners .05)
+      const lu = U[yy + xl] * .2 + U[yy + xr] * .2 + U[yu + x] * .2 + U[yd + x] * .2
+               + (U[yu + xl] + U[yu + xr] + U[yd + xl] + U[yd + xr]) * .05 - u;
+      const lv = V[yy + xl] * .2 + V[yy + xr] * .2 + V[yu + x] * .2 + V[yd + x] * .2
+               + (V[yu + xl] + V[yu + xr] + V[yd + xl] + V[yd + xr]) * .05 - v;
+      const uvv = u * v * v;
+      U2[i] = u + Du * lu - uvv + F * (1 - u);
+      V2[i] = v + Dv * lv + uvv - (F + k) * v;
+    }
+  }
+  [U, U2] = [U2, U]; [V, V2] = [V2, V];
+}
+
+// Palette: deep teal → cyan → near-white, keyed on V concentration.
+const lut = new Uint8ClampedArray(256 * 3);
+for (let i = 0; i < 256; i++) {
+  const t = i / 255, h = Math.pow(t, 0.8);
+  lut[i * 3]     = 2 + 190 * h * h * h;
+  lut[i * 3 + 1] = 9 + 245 * h;
+  lut[i * 3 + 2] = 12 + 230 * Math.pow(h, 0.75);
+}
+function draw() {
+  const d = img.data;
+  for (let i = 0; i < N * N; i++) {
+    const c = Math.min(255, Math.max(0, V[i] * 3.2 * 255)) | 0;
+    d[i * 4] = lut[c * 3]; d[i * 4 + 1] = lut[c * 3 + 1]; d[i * 4 + 2] = lut[c * 3 + 2]; d[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+// Interaction: drag to paint organism.
+let down = false;
+const at = (e) => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * N, (e.clientY - r.top) / r.height * N]; };
+canvas.addEventListener('pointerdown', (e) => { down = true; blob(...at(e), 4); });
+canvas.addEventListener('pointermove', (e) => { if (down) blob(...at(e), 3); });
+addEventListener('pointerup', () => (down = false));
+
+// UI
+const ui = document.getElementById('ui'), label = document.getElementById('name');
+function select(name) {
+  params = PRESETS[name]; label.textContent = `${name}  F=${params.F} k=${params.k}`;
+  [...ui.querySelectorAll('button[data-p]')].forEach((b) => b.classList.toggle('on', b.dataset.p === name));
+  reset();
+}
+for (const name of Object.keys(PRESETS)) {
+  const b = document.createElement('button'); b.textContent = name; b.dataset.p = name; b.onclick = () => select(name); ui.append(b);
+}
+const clear = document.createElement('button'); clear.textContent = 'reseed'; clear.onclick = () => reset(); ui.append(clear);
+
+window.__garden = { step, get V() { return V; }, N };
+const q = new URLSearchParams(location.search);
+select(PRESETS[q.get('p')] ? q.get('p') : 'coral');
+for (let i = 0, w = Math.min(+q.get('warm') || 0, 40000); i < w; i++) step(); // ?warm=N pre-grows the pattern
+(function loop() { for (let s = 0; s < STEPS; s++) step(); draw(); requestAnimationFrame(loop); })();
+</script>
+</body>
+</html>
