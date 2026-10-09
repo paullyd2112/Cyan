@@ -6,15 +6,17 @@ export const RULE_OPTIONS = {
   hazard: ['lethal', 'reset', 'safe'],
   controls: ['normal', 'mirrored', 'rotated'],
   goal: ['reach', 'keys'],
+  gravity: ['off', 'down'],
 };
-export const RULE_LABEL = { move: 'Movement', hazard: 'Red tiles', controls: 'Controls', goal: 'Goal' };
+export const RULE_LABEL = { move: 'Movement', hazard: 'Red tiles', controls: 'Controls', goal: 'Goal', gravity: 'Gravity' };
 export const RULE_TEXT = {
   move: { step: 'Each press moves you one tile.', slide: 'You slide until a wall stops you.' },
   hazard: { lethal: 'Touching one ends the run.', reset: 'Touching one sends you back to the start.', safe: 'They are harmless.' },
   controls: { normal: 'Arrows move you where they point.', mirrored: 'Left and right are swapped.', rotated: 'Inputs turn 90° clockwise: up moves right.' },
   goal: { reach: 'Step onto the exit.', keys: 'Collect every key, then step onto the exit.' },
+  gravity: { off: 'You stay where you stop.', down: 'After every move you fall until something stops you.' },
 };
-export const START_RULES = { move: 'step', hazard: 'lethal', controls: 'normal', goal: 'reach' };
+export const START_RULES = { move: 'step', hazard: 'lethal', controls: 'normal', goal: 'reach', gravity: 'off' };
 
 export function mulberry32(seed) {
   let a = seed >>> 0;
@@ -36,25 +38,31 @@ export function applyControls(controls, dir) {
 export const startState = (level) => ({ x: level.start[0], y: level.start[1], keys: 0 });
 const fullKeys = (level) => (1 << level.keys.length) - 1;
 
-/** One input. Returns { x, y, keys, won, dead }. */
-export function stepState(level, rules, st, inputDir) {
-  const [dx, dy] = DIRS[applyControls(rules.controls, inputDir)];
+/** Moves along (dx, dy) up to `reps` tiles, applying hazards, keys and the exit as it goes. */
+function advance(level, rules, st, dx, dy, reps) {
   let { x, y, keys } = st;
-  const reps = rules.move === 'slide' ? Infinity : 1;
   for (let i = 0; i < reps; i++) {
     const nx = x + dx, ny = y + dy;
     if (nx < 0 || ny < 0 || nx >= level.w || ny >= level.h || level.grid[ny][nx] === '#') break;
     x = nx; y = ny;
     if (level.grid[y][x] === 'X' && rules.hazard !== 'safe') {
       if (rules.hazard === 'lethal') return { x, y, keys, won: false, dead: true };
-      [x, y] = level.start; // reset
-      break;
+      [x, y] = level.start; // reset: back to the start, no further falling
+      return { x, y, keys, won: false, dead: false, reset: true };
     }
     const k = level.keys.findIndex(([kx, ky]) => kx === x && ky === y);
     if (k >= 0) keys |= 1 << k;
     if (x === level.exit[0] && y === level.exit[1] && keys === fullKeys(level)) return { x, y, keys, won: true, dead: false };
   }
   return { x, y, keys, won: false, dead: false };
+}
+
+/** One input. Returns { x, y, keys, won, dead }. Gravity always pulls down, whatever the controls say. */
+export function stepState(level, rules, st, inputDir) {
+  const [dx, dy] = DIRS[applyControls(rules.controls, inputDir)];
+  let r = advance(level, rules, st, dx, dy, rules.move === 'slide' ? Infinity : 1);
+  if (rules.gravity === 'down' && !r.dead && !r.won && !r.reset) r = advance(level, rules, r, 0, 1, Infinity);
+  return r;
 }
 
 /** Breadth-first search over (position, keys). Returns the fewest inputs to win, or -1. */
@@ -77,23 +85,31 @@ export function solve(level, rules) {
   return -1;
 }
 
-/** Generates a level that is solvable under `rules` and neither trivial nor tedious. */
-export function generateLevel(rules, rng, size = 7) {
-  const [lo, hi] = rules.move === 'slide' ? [3, 16] : [6, 22];
-  for (let attempt = 0; attempt < 5000; attempt++) {
-    const grid = Array.from({ length: size }, () => Array.from({ length: size }, () => {
-      const r = rng();
-      return r < 0.2 ? '#' : r < 0.32 ? 'X' : '.';
-    }));
-    const free = [];
-    grid.forEach((row, y) => row.forEach((c, x) => c === '.' && free.push([x, y])));
-    const nKeys = rules.goal === 'keys' ? 2 : 0;
-    if (free.length < 3 + nKeys) continue;
-    const pick = () => free.splice(Math.floor(rng() * free.length), 1)[0];
-    const start = pick(), exit = pick(), keys = Array.from({ length: nKeys }, pick);
-    const level = { w: size, h: size, grid: grid.map((r) => r.join('')), start, exit, keys };
-    const par = solve(level, rules);
-    if (par >= lo && par <= hi) return { ...level, par };
+/**
+ * Generates a level that is solvable under `rules`, neither trivial nor tedious.
+ * `difficulty` raises the minimum solution length; if a rule combination cannot meet it
+ * (gravity cuts down the reachable tiles) the floor relaxes, but solvability never does.
+ */
+export function generateLevel(rules, rng, size = 7, difficulty = 0) {
+  const [base, hi] = rules.move === 'slide' ? [3, 16] : [6, 22];
+  const floor = rules.gravity === 'down' ? 3 : base;
+  const want = Math.min(floor + Math.floor(Math.min(difficulty, 8) / 2), hi - 4);
+  for (let lo = want; lo >= 3; lo--) {
+    for (let attempt = 0; attempt < 1500; attempt++) {
+      const grid = Array.from({ length: size }, () => Array.from({ length: size }, () => {
+        const r = rng();
+        return r < 0.2 ? '#' : r < 0.32 ? 'X' : '.';
+      }));
+      const free = [];
+      grid.forEach((row, y) => row.forEach((c, x) => c === '.' && free.push([x, y])));
+      const nKeys = rules.goal === 'keys' ? 2 : 0;
+      if (free.length < 3 + nKeys) continue;
+      const pick = () => free.splice(Math.floor(rng() * free.length), 1)[0];
+      const start = pick(), exit = pick(), keys = Array.from({ length: nKeys }, pick);
+      const level = { w: size, h: size, grid: grid.map((r) => r.join('')), start, exit, keys };
+      const par = solve(level, rules);
+      if (par >= lo && par <= hi) return { ...level, par };
+    }
   }
   throw new Error('could not generate a level for ' + JSON.stringify(rules));
 }

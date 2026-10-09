@@ -53,10 +53,12 @@ test('solver finds shortest path and reports unsolvable levels', () => {
 test('every rule combination yields solvable, non-trivial levels (fairness)', () => {
   const combos = [];
   for (const move of RULE_OPTIONS.move) for (const hazard of RULE_OPTIONS.hazard)
-    for (const controls of RULE_OPTIONS.controls) for (const goal of RULE_OPTIONS.goal) combos.push({ move, hazard, controls, goal });
-  assert.equal(combos.length, 36);
+    for (const controls of RULE_OPTIONS.controls) for (const goal of RULE_OPTIONS.goal)
+      for (const gravity of RULE_OPTIONS.gravity) combos.push({ move, hazard, controls, goal, gravity });
+  assert.equal(combos.length, 72);
   for (const rules of combos) for (let seed = 1; seed <= 12; seed++) {
-    const level = generateLevel(rules, mulberry32(seed));
+    const difficulty = seed % 10; // also covers the late-run difficulty ramp
+    const level = generateLevel(rules, mulberry32(seed), 7, difficulty);
     assert.equal(solve(level, rules), level.par, JSON.stringify(rules));
     assert.ok(level.par >= 3);
   }
@@ -70,4 +72,27 @@ test('mutation changes exactly one rule', () => {
     assert.deepEqual(Object.keys(rules).filter((k) => rules[k] !== m.rules[k]), [m.dim]);
     rules = m.rules;
   }
+});
+
+test('gravity: you fall after moving, and controls never rotate it', () => {
+  const l = lvl(['S..', '...', '.E.']);
+  const g = R({ gravity: 'down' });
+  assert.deepEqual(stepState(l, g, startState(l), 'right').y, 2); // moved right, fell to the floor row
+  const rotated = R({ gravity: 'down', controls: 'rotated' }); // "up" becomes right; gravity still pulls down
+  const r = stepState(l, rotated, startState(l), 'up');
+  assert.deepEqual([r.x, r.y], [1, 2]);
+});
+
+test('gravity: falling through a hazard is lethal, onto the exit wins', () => {
+  const l = lvl(['S', '.', 'X', 'E']); l.grid[2] = 'X';
+  assert.equal(stepState(l, R({ gravity: 'down' }), startState(l), 'up').dead, true);
+  const l2 = lvl(['S', '.', 'E']);
+  assert.equal(stepState(l2, R({ gravity: 'down' }), startState(l2), 'up').won, true);
+});
+
+test('difficulty raises the minimum solution length', () => {
+  const rules = R();
+  const easy = Array.from({ length: 20 }, (_, i) => generateLevel(rules, mulberry32(i + 1), 7, 0).par);
+  const hard = Array.from({ length: 20 }, (_, i) => generateLevel(rules, mulberry32(i + 1), 7, 8).par);
+  assert.ok(Math.min(...hard) >= Math.min(...easy) + 2);
 });
