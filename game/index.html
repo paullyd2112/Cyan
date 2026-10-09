@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Rule Drift</title>
+<style>
+  /* One dark look on purpose: a lab bench. Cyan = you and the exit, amber = keys, coral = danger. */
+  :root { --bg:#070d10; --panel:#0d171b; --line:#1c2f35; --fg:#d5eef0; --dim:#6f9299; --cyan:#58e6e0; --amber:#f2b84b; --coral:#ff6f61; color-scheme:dark; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; min-height:100%; background:var(--bg); color:var(--fg); font:15px/1.45 "IBM Plex Sans", system-ui, sans-serif; }
+  body { padding-inline:16px; padding-block:20px; display:flex; justify-content:center; }
+  main { width:100%; max-width:860px; display:grid; gap:20px; grid-template-columns:minmax(0,1fr) 280px; align-items:start; }
+  @media (max-width:700px) { main { grid-template-columns:minmax(0,1fr); } }
+  h1 { margin:0; font:600 22px/1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing:.02em; }
+  h1 span { color:var(--cyan); }
+  .bar { grid-column:1/-1; display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  .stats { font:13px "IBM Plex Mono", ui-monospace, monospace; color:var(--dim); font-variant-numeric:tabular-nums; }
+  .stats b { color:var(--fg); font-weight:500; }
+  #board { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; width:100%; max-width:480px; aspect-ratio:1; margin-inline:auto; padding:3px; background:var(--line); border-radius:6px; touch-action:manipulation; }
+  .c { position:relative; background:var(--panel); border-radius:3px; }
+  .c.w { background:#04080a; box-shadow:inset 0 0 0 1px #12222a; }
+  .c.x { background:repeating-linear-gradient(45deg,#2a1513 0 6px,#3a1a17 6px 12px); box-shadow:inset 0 0 0 1px var(--coral); }
+  .c.e::after { content:""; position:absolute; inset:18%; border:3px solid var(--cyan); border-radius:50%; }
+  .c.e.locked::after { border-style:dashed; opacity:.45; }
+  .c.k::after { content:""; position:absolute; inset:30%; background:var(--amber); transform:rotate(45deg); border-radius:2px; }
+  .c.p::before { content:""; position:absolute; inset:20%; background:var(--cyan); border-radius:30%; z-index:1; box-shadow:0 0 14px rgba(88,230,224,.55); }
+  #board.dead .c.p::before { background:var(--coral); box-shadow:0 0 14px var(--coral); }
+  aside { display:grid; gap:12px; }
+  .rules { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
+  .rules li { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:9px 11px; }
+  .rules li.new { border-color:var(--cyan); animation:flash 1.4s ease-out; }
+  @keyframes flash { from { background:#123a3c; } to { background:var(--panel); } }
+  .rules small { display:block; font:11px "IBM Plex Mono", ui-monospace, monospace; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); }
+  .rules strong { font-weight:600; }
+  .rules em { display:block; font-style:normal; color:var(--dim); font-size:13px; }
+  #msg { min-height:3.2em; padding:10px 12px; border-left:3px solid var(--line); background:var(--panel); border-radius:0 6px 6px 0; font-size:14px; }
+  #msg.good { border-color:var(--cyan); } #msg.bad { border-color:var(--coral); } #msg.change { border-color:var(--amber); }
+  .pad { display:grid; grid-template-columns:repeat(3,56px); grid-template-rows:repeat(2,52px); gap:6px; justify-content:center; }
+  button { font:inherit; color:var(--fg); background:var(--panel); border:1px solid var(--line); border-radius:6px; cursor:pointer; }
+  button:hover { border-color:var(--cyan); } button:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
+  .pad .u { grid-column:2; } .pad .l { grid-column:1; grid-row:2; } .pad .d { grid-column:2; grid-row:2; } .pad .r { grid-column:3; grid-row:2; }
+  .row { display:flex; gap:8px; }
+  .row button { flex:1; padding:9px; }
+  #next { background:var(--cyan); color:#032; border-color:var(--cyan); font-weight:600; }
+  .run { display:flex; gap:6px; align-items:center; flex-wrap:wrap; font:12px "IBM Plex Mono", ui-monospace, monospace; color:var(--dim); }
+  .run code { color:var(--fg); background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:3px 7px; user-select:all; }
+  .run input { width:84px; font:inherit; color:var(--fg); background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:4px 6px; }
+  .run button { padding:4px 9px; font-size:12px; }
+  .hint { color:var(--dim); font-size:12.5px; margin:0; }
+  @media (prefers-reduced-motion:reduce) { .rules li.new { animation:none; } }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+</head>
+<body>
+<main>
+  <div class="bar"><h1>RULE<span>/</span>DRIFT</h1><div class="stats" id="stats"></div></div>
+  <section><div id="board" role="img" aria-label="Puzzle board"></div></section>
+  <aside>
+    <ul class="rules" id="rules"></ul>
+    <div id="msg"></div>
+    <div class="pad">
+      <button class="u" data-d="up" aria-label="Up">▲</button><button class="l" data-d="left" aria-label="Left">◀</button>
+      <button class="d" data-d="down" aria-label="Down">▼</button><button class="r" data-d="right" aria-label="Right">▶</button>
+    </div>
+    <div class="row"><button id="restart">Restart (R)</button><button id="next" hidden>Next level ↵</button></div>
+    <div class="run"><span>run</span><code id="runcode"></code><input id="runin" placeholder="code" aria-label="Run code" maxlength="10"><button id="go">Load</button><button id="newrun">New run</button></div>
+    <p class="hint">Arrows or WASD. Every win changes one rule and the levels get longer. Share a run code and a friend plays the exact same levels.</p>
+  </aside>
+</main>
+<script type="module">
+import { DIRS, RULE_LABEL, RULE_TEXT, START_RULES, mulberry32, generateLevel, mutateRules, startState, stepState } from './core.js';
+
+let rng, runSeed, rules, level, st, moves, levelNo, phase, changed, overPar;
+const $ = (id) => document.getElementById(id);
+
+function newLevel() {
+  level = generateLevel(rules, rng, 7, levelNo); st = startState(level); moves = 0; levelNo++; phase = 'play'; render();
+}
+function render() {
+  const full = (1 << level.keys.length) - 1;
+  $('board').className = phase === 'dead' ? 'dead' : '';
+  $('board').innerHTML = level.grid.map((row, y) => [...row].map((ch, x) => {
+    const cls = ['c'];
+    if (ch === '#') cls.push('w'); if (ch === 'X') cls.push('x');
+    if (x === level.exit[0] && y === level.exit[1]) { cls.push('e'); if (st.keys !== full) cls.push('locked'); }
+    level.keys.forEach(([kx, ky], i) => { if (kx === x && ky === y && !(st.keys & (1 << i))) cls.push('k'); });
+    if (x === st.x && y === st.y) cls.push('p');
+    return `<div class="${cls.join(' ')}"></div>`;
+  }).join('')).join('');
+  $('rules').innerHTML = Object.keys(RULE_LABEL).map((dim) =>
+    `<li class="${changed === dim ? 'new' : ''}"><small>${RULE_LABEL[dim]}</small><strong>${rules[dim]}</strong><em>${RULE_TEXT[dim][rules[dim]]}</em></li>`).join('');
+  const sign = overPar > 0 ? '+' : '';
+  $('stats').innerHTML = `level <b>${levelNo}</b> · moves <b>${moves}</b> · par <b>${level.par}</b> · vs par <b>${sign}${overPar}</b>`;
+  $('next').hidden = phase !== 'won';
+}
+function say(text, kind) { $('msg').textContent = text; $('msg').className = kind || ''; }
+
+function move(dir) {
+  if (phase === 'won') return;
+  if (phase === 'dead') { st = startState(level); phase = 'play'; }
+  const r = stepState(level, rules, st, dir);
+  moves++;
+  st = r;
+  if (r.dead) { phase = 'dead'; say('That ended the run. Any key to try again.', 'bad'); }
+  else if (r.won) {
+    phase = 'won'; overPar += moves - level.par;
+    say(moves <= level.par ? `Solved in ${moves}. That is the shortest possible.` : `Solved in ${moves} (shortest is ${level.par}).`, 'good');
+  } else if (phase === 'play' && moves === 1) say('', '');
+  render();
+}
+function next() {
+  const m = mutateRules(rules, rng); rules = m.rules; changed = m.dim;
+  newLevel();
+  say(`Rule changed: ${RULE_LABEL[m.dim]} is now "${m.to}" (was "${m.from}"). ${RULE_TEXT[m.dim][m.to]}`, 'change');
+}
+function restart() { st = startState(level); moves = 0; phase = 'play'; say('', ''); render(); }
+
+const KEYS = { ArrowUp:'up', w:'up', ArrowDown:'down', s:'down', ArrowLeft:'left', a:'left', ArrowRight:'right', d:'right' };
+addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const dir = KEYS[e.key] || KEYS[e.key.toLowerCase?.()];
+  if (dir) { e.preventDefault(); move(dir); }
+  else if (e.key === 'r' || e.key === 'R') restart();
+  else if ((e.key === 'Enter' || e.key === ' ') && phase === 'won') { e.preventDefault(); next(); }
+});
+document.querySelectorAll('.pad button').forEach((b) => b.addEventListener('click', () => move(b.dataset.d)));
+$('restart').onclick = restart; $('next').onclick = next;
+
+function startRun(seed) {
+  runSeed = seed >>> 0; rng = mulberry32(runSeed);
+  rules = START_RULES; levelNo = 0; overPar = 0; changed = null;
+  $('runcode').textContent = runSeed.toString(36);
+  try { history.replaceState(null, '', '#run-' + runSeed.toString(36)); } catch (e) { /* sandboxed frame */ }
+  newLevel();
+  say('Reach the ring. The rules will not stay the same for long.', '');
+}
+const parseCode = (t) => { const n = parseInt(String(t).trim().replace(/^#?run-/, ''), 36); return Number.isFinite(n) && n >= 0 ? n : null; };
+$('go').onclick = () => { const n = parseCode($('runin').value); if (n === null) say('That is not a run code. Codes are letters and digits, like 1k2f9a.', 'bad'); else startRun(n); $('runin').blur(); };
+$('newrun').onclick = () => startRun((Math.random() * 2 ** 31) >>> 0);
+$('runin').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') $('go').click(); }); // typing a code must not move the block
+
+startRun(parseCode(location.hash) ?? ((Date.now() ^ 0x9e3779b9) >>> 0));
+window.__drift = { move, next, startRun, get state() { return { rules, level, st, phase, moves, overPar, runSeed }; } };
+</script>
+</body>
+</html>
